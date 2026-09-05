@@ -22,5 +22,5 @@ jobs:
             - name: Test API /health
               working-directory: apps/api
               run: |
-                pip install -r requirments.txt pytest httpx
+                pip install -r requirements.txt pytest httpx
                 pytest -q
