@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Relay</title>
+</head>
+<body>
+  <h1>Relay dispatch</h1>
+  <p>This page talks to the API. The worker still does the job behind Redis.</p>
+  <label>
+    Message
+    <input id="msg" value="hello from the web" />
+  </label>
+  <button id="send" type="button">Queue job</button>
+  <pre id="out"></pre>
+  <script>
+    const out = document.getElementById("out");
+    document.getElementById("send").onclick = async () => {
+      const message = document.getElementById("msg").value;
+      const res = await fetch("/jobs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message }),
+      });
+      out.textContent = await res.text();
+    };
+  </script>
+</body>
+</html>
