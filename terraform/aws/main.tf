@@ -117,3 +117,64 @@ resource "aws_security_group" "relay_web" {
 output "security_group_id" {
   value = aws_security_group.relay_web.id
 }
+
+resource "aws_network_acl" "public" {
+  vpc_id = aws_vpc.relay.id
+
+  tags = {
+    Name = "relay-lab-public"
+  }
+}
+
+resource "aws_network_acl_rule" "ingress_http" {
+  network_acl_id = aws_network_acl.public.id
+  rule_number    = 100
+  egress         = false
+  protocol       = "tcp"
+  rule_action    = "allow"
+  cidr_block     = "0.0.0.0/0"
+  from_port      = 80
+  to_port        = 80
+}
+
+resource "aws_network_acl_rule" "ingress_https" {
+  network_acl_id = aws_network_acl.public.id
+  rule_number    = 110
+  egress         = false
+  protocol       = "tcp"
+  rule_action    = "allow"
+  cidr_block     = "0.0.0.0/0"
+  from_port      = 443
+  to_port        = 443
+}
+
+resource "aws_network_acl_rule" "ingress_ephemeral" {
+  network_acl_id = aws_network_acl.public.id
+  rule_number    = 120
+  egress         = false
+  protocol       = "tcp"
+  rule_action    = "allow"
+  cidr_block     = "0.0.0.0/0"
+  from_port      = 1024
+  to_port        = 65535
+}
+
+resource "aws_network_acl_rule" "egress_all" {
+  network_acl_id = aws_network_acl.public.id
+  rule_number    = 100
+  egress         = true
+  protocol       = "-1"
+  rule_action    = "allow"
+  cidr_block     = "0.0.0.0/0"
+  from_port      = 0
+  to_port        = 0
+}
+
+resource "aws_network_acl_association" "public" {
+  subnet_id      = aws_subnet.public.id
+  network_acl_id = aws_network_acl.public.id
+}
+
+output "network_acl_id" {
+  value = aws_network_acl.public.id
+}
