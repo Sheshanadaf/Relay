@@ -1,0 +1,5 @@
+# Image names after kind load (same as today)
+images:
+  api: relay-api:latest
+  worker: relay-worker:latest
+  web: relay-web:latest
