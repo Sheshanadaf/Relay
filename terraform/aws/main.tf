@@ -96,3 +96,24 @@ output "vpc_id" {
 output "public_subnet_id" {
   value = aws_subnet.public.id
 }
+
+resource "aws_security_group" "relay_web" {
+  name        = "relay-lab-web"
+  description = "Lab SG. No inbound. Egress all so a future instance could talk out."
+  vpc_id      = aws_vpc.relay.id
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "relay-lab-web"
+  }
+}
+
+output "security_group_id" {
+  value = aws_security_group.relay_web.id
+}
