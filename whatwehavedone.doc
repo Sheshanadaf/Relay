@@ -1,0 +1,141 @@
+We built one small product called Relay. A person opens a web page. The page talks to an API. The API writes a job into Redis. A worker reads that job and prints it. Postgres is there so the API can say it is really ready, not only “the process started.”
+
+We did this in this order: type folders and files on the laptop, run Docker Compose, put it on GitHub with GitHub Actions, run the same apps on kind with kubectl YAML, then Terraform (tiny kind ConfigMap, then empty AWS S3 + VPC), then a Helm chart that we pushed to GitHub. We did not helm install over the live cluster, and we did not install Argo CD yet.
+
+Extra rules people mix up
+
+Inside a container, the API listens on all network interfaces. That is what this means:
+
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
+
+0.0.0.0 here is not a website URL. It means “accept traffic coming into this container on port 8080.” In the browser on Windows, you open http://127.0.0.1:8080. That means “this same computer.” If you type http://0.0.0.0:8080 in Chrome, Windows can show ERR_ADDRESS_INVALID. That is a browser mistake, not a Docker mistake. localhost and 127.0.0.1 are the same idea on your PC.
+
+docker compose up -d starts containers and reuses old images if they already exist. Fast, but if you changed a Dockerfile or Python/HTML, the running app can stay old. docker compose up -d --build rebuilds images first, then starts. Use --build after you edit apps/api, apps/worker, apps/web, or a Dockerfile. You do not need --build every time you only start and stop.
+
+kind is Kubernetes inside Docker. Your laptop has images named relay-api:latest. The kind node is a different Docker world. kubectl apply only creates YAML objects. It does not copy images. After docker compose build, you copy images in with kind load docker-image relay-api:latest --name relay (same for worker and web). --name relay must match kind create cluster --name relay. If you skip this, Pods can sit ErrImageNeverPull / ImagePullBackOff. imagePullPolicy: Never is Kubernetes only. Compose does not use it.
+
+Our images are relay-api:latest, relay-worker:latest, relay-web:latest — not api-relay. If you type the name backwards, kind load says the image is not found.
+
+Ctrl+C in the Compose terminal stops the stack for now. docker compose down removes the Compose containers and the Compose network. Use down so Kubernetes is not fighting Compose on the same ports.
+
+/health means the process is up (liveness). /ready means Postgres and Redis answer (readiness). /jobs is POST only. A browser GET gets 405. That is correct.
+
+0. Tools on Windows (once)
+
+Install Git, Docker Desktop (Linux containers), Python 3.12+, kubectl, kind, Terraform, Helm, AWS CLI. Check with git --version, docker version, python --version, kubectl version --client, kind version, terraform version, helm version, aws --version. Then aws configure with IAM user relay-lab (not root), region ap-south-1.
+
+1. Create the project by typing files (not clone)
+
+mkdir D:\Projects\Relay
+cd D:\Projects\Relay
+git init
+Create folders: apps\api, apps\worker, apps\web, .github\workflows, deploy\kubernetes, terraform\kind, terraform\aws, charts\relay\templates.
+
+Root files: README.md, .gitignore, docker-compose.yml. .gitignore ignores .env, .venv/, __pycache__/, .terraform/, *.tfstate, *.tfstate.*. Commit .tf files and .terraform.lock.hcl. Never commit state files.
+
+Compose services: api, worker, web, postgres, redis. API env: DATABASE_URL=postgresql://relay:relay@postgres:5432/relay and REDIS_URL=redis://redis:6379/0. User and password live inside DATABASE_URL. depends_on with condition: service_healthy. Volume postgres_data. Only web publishes 8080:80. API stays on the Compose network at api:8080.
+
+API Dockerfile: non-root user relay, uid 10001, uvicorn --host 0.0.0.0 --port 8080. Worker: brpop list relay:jobs. Web: nginx listens 80, proxies /health /ready /jobs to http://api:8080.
+
+2. First Compose run
+
+cd D:\Projects\Relay
+docker compose up --build
+--build because images did not exist yet.
+
+Typical first errors we fixed: YAML indent; ignore the Compose version warning; Docker user must be relay not appuser; old Postgres volume → docker compose down -v then up again (this wipes DB data); Redis URL must start with redis://; worker KeyError → os.environ["REDIS_URL"]; /ready must check Postgres and Redis.
+
+When it worked, the terminal might print a listen line with 0.0.0.0:8080. You still open the browser at http://127.0.0.1:8080, then /health and /ready. POST /jobs from the page; worker logs the job.
+
+Stop with Ctrl+C. Later we used docker compose down before kind so port 8080 was free.
+
+3. GitHub + CI
+
+Repo: https://github.com/Sheshanadaf/Relay.git (public).
+
+git remote add origin https://github.com/Sheshanadaf/Relay.git
+git add .
+git commit -m "your message"
+git push -u origin main
+.github/workflows/ci.yml on push to main: checkout, docker compose build, pip + pytest (apps/api/test_health.py with fake env so import main works), docker compose up -d, curl loop until /ready is 200, then docker compose down. If CI is red: open the red job, scroll to the first FAIL, paste that.
+
+4. kind + Kubernetes YAML
+
+cd D:\Projects\Relay
+docker compose down
+kind create cluster --name relay
+kubectl config current-context
+Must show kind-relay. kubectl get nodes → Ready.
+
+YAML under deploy/kubernetes/ (.yml or .yaml is fine): Namespace default, ConfigMaps, Secrets, PVC + postgres Deployment, redis, api, worker, web, Services (worker has no Service), Ingress.
+
+docker compose build
+kind load docker-image relay-api:latest --name relay
+kind load docker-image relay-worker:latest --name relay
+kind load docker-image relay-web:latest --name relay
+kubectl apply -f deploy/kubernetes/
+kubectl get pods
+kubectl get pods --watch
+0/1 with no ERROR → still starting. CrashLoopBackOff / ImagePullBackOff → kubectl describe pod <name> then kubectl logs <name>.
+
+Ingress (official kind URL):
+
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
+kubectl -n ingress-nginx get pods
+Wait until those pods are Ready. Your Ingress sends / to Service web. Then:
+
+kubectl port-forward -n ingress-nginx svc/ingress-nginx-controller 8080:80
+Browser: http://127.0.0.1:8080. Keep that terminal open. Ctrl+C stops the forward, not the cluster. Check worker: kubectl logs deploy/worker.
+
+5. Terraform
+
+kind training chart in terraform/kind/main.tf (ConfigMap relay-info):
+
+cd D:\Projects\Relay\terraform\kind
+terraform init
+terraform plan
+terraform apply
+Type yes. Then kubectl get configmap relay-info -o yaml.
+
+AWS lab in ap-south-1, IAM user relay-lab. Bucket names globally unique (relay-lab-ad1685c6). Do not reuse aether-lab-*. First apply used a local backend (no backend.tf): S3, VPC, public subnet, SG with no ingress, NACL. Then state bucket relay-lab-tfstate-583966366465, DynamoDB relay-lab-tfstate-lock, write backend.tf, terraform init -migrate-state, type yes.
+
+cd D:\Projects\Relay\terraform\aws
+terraform init
+terraform plan
+terraform apply
+terraform init -migrate-state
+Commit .tf + lockfile. Not *.tfstate. Do not terraform destroy unless you want the lab gone.
+
+6. Helm (chart only — no live install)
+
+cd D:\Projects\Relay
+helm create charts/relay
+Replace templates with copies of deploy/kubernetes YAML. Add Helm headers. Wire {{ .Values.images.api }}, {{ .Values.images.worker }}, {{ .Values.images.web }} from values.yaml. Check with helm template relay charts/relay. Must print Deployments/Services. We did not helm install because Pods already run from raw YAML in default.
+
+git add charts
+git commit -m "add helm chart for relay"
+git push origin main
+7. Not done yet
+
+Module 5 is Argo CD in namespace argocd, Application YAML pointing at https://github.com/Sheshanadaf/Relay.git path charts/relay, destination namespace relay (not default), automated sync, CreateNamespace=true. Later: Prometheus/Grafana, Ansible, Jenkins, optional EKS (costs money).
+
+Happy path if the repo already works
+
+cd D:\Projects\Relay
+docker compose down
+docker compose up -d --build
+Browser http://127.0.0.1:8080. Then for kind:
+
+docker compose down
+kind load docker-image relay-api:latest --name relay
+kind load docker-image relay-worker:latest --name relay
+kind load docker-image relay-web:latest --name relay
+kubectl apply -f deploy/kubernetes/
+kubectl port-forward -n ingress-nginx svc/ingress-nginx-controller 8080:80
+If you changed app code, rebuild, then load, then restart Pods:
+
+docker compose build
+kind load docker-image relay-api:latest --name relay
+kind load docker-image relay-worker:latest --name relay
+kind load docker-image relay-web:latest --name relay
+kubectl rollout restart deployment/api deployment/worker deployment/web
