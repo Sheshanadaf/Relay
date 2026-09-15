@@ -5,6 +5,11 @@ import redis
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, generate_latest
+from fastapi.responses import Response
+
+jobs_queued = Counter("relay_jobs_queued_total", "Jobs accepted onto the Redis queue")
+
 app = FastAPI()
 
 DATABASE_URL = os.environ["DATABASE_URL"]
@@ -37,4 +42,9 @@ def ready():
 @app.post("/jobs")
 def create_job(body: JobIn):
     r.lpush(QUEUE, body.message)
+    jobs_queued.inc()
     return {"queued": True, "message": body.message}
+
+@app.get("/metrics")
+def metrics():
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
