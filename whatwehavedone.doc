@@ -139,3 +139,52 @@ kind load docker-image relay-api:latest --name relay
 kind load docker-image relay-worker:latest --name relay
 kind load docker-image relay-web:latest --name relay
 kubectl rollout restart deployment/api deployment/worker deployment/web
+
+Module 5 is done. Same recap is in GitOps interview recap. Say it in your own words. Do not recite this like a script.
+
+30 seconds
+
+We run Relay on kind. Desired Kubernetes state is a Helm chart in git. Argo CD watches GitHub and makes the cluster match that chart. I do not kubectl-apply the live app by hand anymore. CI builds and tests. Argo CD deploys. When git and the cluster drifted, Argo showed OutOfSync even while pods were Healthy. We fixed a real Ingress clash, then it went Synced and Healthy.
+
+What GitOps means
+
+Git is the truth for what should run. A controller in the cluster compares live objects to git and syncs the diff. People change YAML, open a PR, push. They do not SSH in and edit Pods.
+
+Why not kubectl apply forever
+
+Fine for learning. In a team it ages badly: nobody knows who changed what, no PR for cluster state, CI might deploy while someone else kubectl-ed something else. Git log is the history.
+
+CI vs CD (they will ask)
+
+CI (GitHub Actions): build, test, prove /ready. “Is this commit safe?”
+CD / GitOps (Argo CD): “Make the cluster look like this commit’s chart.”
+Argo CD does not build Docker images. GitHub Actions does not kubectl-apply this app. Pull model: the cluster pulls git.
+
+How yours is wired (facts from your repo)
+
+Repo Relay, path charts/relay, branch main
+Application object in namespace argocd
+Destination namespace relay, not default, so it did not fight the old stack
+Automated sync, prune, selfHeal, CreateNamespace
+Local images still need kind load. Argo CD will not copy Docker Desktop images into the kind node for you
+Synced vs Healthy (they mix these up)
+
+Healthy = Kubernetes thinks the app is up (pods, probes)
+Synced = live objects match git
+You can be Healthy and OutOfSync. That is drift, not a crash
+The story to tell (this is the hireable part)
+
+We already had Ingress in default from kubectl apply. GitOps wanted the same shape in namespace relay: class nginx, path /, no host. ingress-nginx rejected the second Ingress. Argo showed Ingress Missing, app OutOfSync, auto-sync retrying. Pods in relay were already Running. The page worked on 127.0.0.1:8081 via port-forward to Service web. We deleted only the old Ingress in default. Argo created Ingress in relay. Status became Synced and Healthy. Then we removed the hand-applied YAML in default. Traffic now goes through ingress-nginx on 8080.
+
+That shows you read the resource tree, you did not wipe the cluster, and you know Ingress admission is cluster-wide even when objects are namespaced.
+
+Do not say
+
+“Argo CD builds my images”
+“Synced means the website works”
+“We run GitOps on EKS in production” — this lab is kind
+If they ask Flux: same idea, git as truth. Argo gave us a UI. Flux is more CLI. You can learn Flux; the model is the same.
+
+If they ask secrets in git: this public chart is a lab. At a job you would not put real passwords in GitHub. Sealed Secrets, External Secrets, or a cloud secret store.
+
+Next module is Prometheus/Grafana when you say go.
