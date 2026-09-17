@@ -1,0 +1,33 @@
+name: ecr
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/**"
+      - ".github/workflows/ecr.yml"
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    env:
+      REGISTRY: 583966366465.dkr.ecr.ap-south-1.amazonaws.com
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::583966366465:role/relay-gha-ecr
+          aws-region: ap-south-1
+      - uses: aws-actions/amazon-ecr-login@v2
+      - name: Build and push
+        run: |
+          docker build -t $REGISTRY/relay-api:latest apps/api
+          docker build -t $REGISTRY/relay-worker:latest apps/worker
+          docker build -t $REGISTRY/relay-web:latest apps/web
+          docker push $REGISTRY/relay-api:latest
+          docker push $REGISTRY/relay-worker:latest
+          docker push $REGISTRY/relay-web:latest
