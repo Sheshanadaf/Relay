@@ -4,7 +4,10 @@ data "aws_iam_openid_connect_provider" "github" {
 
 data "aws_iam_policy_document" "gha_assume" {
   statement {
-    actions = ["sts:AssumeRoleWithWebIdentity"]
+    actions = [
+      "sts:AssumeRoleWithWebIdentity",
+      "sts:TagSession",
+    ]
     principals {
       type        = "Federated"
       identifiers = [data.aws_iam_openid_connect_provider.github.arn]
@@ -17,7 +20,10 @@ data "aws_iam_policy_document" "gha_assume" {
     condition {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:Sheshanadaf/Relay:ref:refs/heads/main"]
+      values = [
+        "repo:Sheshanadaf/Relay:*",
+        "repo:Sheshanadaf@115085953/Relay@1358222498:*",
+      ]
     }
   }
 }
@@ -29,9 +35,7 @@ resource "aws_iam_role" "gha_ecr" {
 
 data "aws_iam_policy_document" "gha_ecr" {
   statement {
-    actions = [
-      "ecr:GetAuthorizationToken",
-    ]
+    actions   = ["ecr:GetAuthorizationToken"]
     resources = ["*"]
   }
   statement {

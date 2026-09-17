@@ -16,7 +16,7 @@ browser → Ingress (nginx) → web → API → Redis list relay:jobs → worker
 
 **GitOps:** GitHub `main` holds `charts/relay`. Argo CD in the cluster watches that path and applies it into namespace `relay`.
 
-**CI:** GitHub Actions builds Compose images and runs tests / a `/ready` check. CI does **not** `kubectl apply` the live app.
+**CI:** `ci.yml` builds Compose images and runs tests / a `/ready` check. `ecr.yml` (OIDC, no AWS keys in GitHub) pushes `relay-api` / `relay-worker` / `relay-web` to ECR on `main`. Neither workflow `kubectl apply`s the live app. Argo CD does.
 
 **Laptop cluster:** [kind](https://kind.sigs.k8s.io/) cluster `relay` (kubectl context `kind-relay`). Local images `relay-api`, `relay-worker`, `relay-web` must be loaded into kind (`kind load docker-image`). Argo CD does not copy Docker images.
 
@@ -24,9 +24,13 @@ browser → Ingress (nginx) → web → API → Redis list relay:jobs → worker
 
 ## AWS (what exists today)
 
-Terraform under `terraform/aws/` (region `ap-south-1`): lab VPC, public subnet, S3, remote state + lock. **No EKS in this revision.** EKS is the next slice (same git, images on ECR, Argo CD on the cluster).
+Terraform under `terraform/aws/` (cheap lab VPC, S3, remote state) and `terraform/eks/` (region `ap-south-1`).
 
-Do not commit `*.tfstate`. Do not `terraform destroy` unless you intend to delete the lab.
+**EKS cluster `relay`:** two AZs, private nodes, NAT per AZ, no bastion. Images live in ECR. Argo CD Application `relay-eks` (`deploy/gitops/application-eks.yaml`) syncs `charts/relay` with `values-eks.yaml`. Reach the UI with `kubectl port-forward -n relay svc/web 8080:80` — there is no public load balancer in this lab (extra bill). Postgres uses `emptyDir` (no EBS CSI yet).
+
+GitHub Actions assumes IAM role `relay-gha-ecr` via OIDC. Repos created after 15 Jul 2026 send `sub` as `repo:OWNER@ID/REPO@ID:...`; the role trust policy must match that.
+
+Do not commit `*.tfstate`. NAT + EKS control plane bill while this stack exists. `terraform destroy` in `terraform/eks` when the demo ends.
 
 ## Layout
 
@@ -37,12 +41,15 @@ Do not commit `*.tfstate`. Do not `terraform destroy` unless you intend to delet
 | `apps/web` | nginx; proxies `/health` `/ready` `/jobs` to the API (not `/metrics`) |
 | `docker-compose.yml` | Local five-container run; only web publishes `8080:80` |
 | `.github/workflows/ci.yml` | Build, pytest, Compose `/ready` |
-| `charts/relay` | Helm chart Argo CD uses |
-| `deploy/gitops/application.yaml` | Argo CD Application → namespace `relay` |
+| `.github/workflows/ecr.yml` | OIDC assume `relay-gha-ecr`, push three images to ECR |
+| `charts/relay` | Helm chart Argo CD uses (`values.yaml` kind, `values-eks.yaml` ECR) |
+| `deploy/gitops/application.yaml` | Argo CD Application on **kind** → namespace `relay` |
+| `deploy/gitops/application-eks.yaml` | Argo CD Application on **EKS** → namespace `relay` |
 | `deploy/kubernetes/` | Raw YAML (how we learned; live path is Helm + Argo) |
 | `deploy/observability/` | Small Prometheus + Grafana (`kubectl apply`, not the Relay Argo app) |
 | `terraform/kind` | Tiny ConfigMap (Terraform + Kubernetes practice) |
 | `terraform/aws` | Cheap AWS lab + remote state |
+| `terraform/eks` | EKS, node group, ECR, GHA OIDC role |
 
 ## Run with Compose
 
@@ -83,6 +90,22 @@ Open `http://127.0.0.1:8080`. After app image changes: build, `kind load`, then 
 
 Argo CD UI (optional): `kubectl port-forward svc/argocd-server -n argocd 8443:443` → `https://127.0.0.1:8443`.
 
+## Run on EKS (GitOps)
+
+1. kubectl context `arn:aws:eks:ap-south-1:583966366465:cluster/relay`.
+2. Argo CD in `argocd`; Application `relay-eks` Synced.
+3. Port-forward (keep the terminal open):
+
+```bash
+kubectl port-forward -n relay svc/web 8080:80
+```
+
+Open `http://127.0.0.1:8080`. After `ecr.yml` pushes `:latest`, restart so nodes pull the new digest:
+
+```bash
+kubectl rollout restart deployment/api deployment/worker deployment/web -n relay
+```
+
 ## Metrics (optional)
 
 ```bash
@@ -108,7 +131,7 @@ Those tools still belong in interviews. They will show up in a **later** repo if
 
 ## Next
 
-Amazon **EKS** in `ap-south-1`: ECR for images, GitHub Actions push, Argo CD on EKS, same Helm chart. That needs an AWS bill (control plane + usually NAT). Until that lands, the running demo is **kind**.
+Hardening (lock the EKS public API to your IP, tags, no long-lived keys). Optional: EBS CSI or RDS instead of `emptyDir` Postgres; a public load balancer. Destroy `terraform/eks` when you stop demoing or NAT+EKS keep billing.
 
 ## License
 
