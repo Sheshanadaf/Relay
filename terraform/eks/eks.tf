@@ -12,6 +12,7 @@ resource "aws_eks_cluster" "relay" {
     ]
     endpoint_private_access = true
     endpoint_public_access  = true
+    public_access_cidrs     = var.eks_api_cidrs
   }
 
   enabled_cluster_log_types = ["api", "audit", "authenticator"]
