@@ -1,0 +1,22 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: relay-eks
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Sheshanadaf/Relay.git
+    path: charts/relay
+    targetRevision: main
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-eks.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: relay
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

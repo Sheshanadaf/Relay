@@ -1,0 +1,4 @@
+images:
+  api: 583966366465.dkr.ecr.ap-south-1.amazonaws.com/relay-api:latest
+  worker: 583966366465.dkr.ecr.ap-south-1.amazonaws.com/relay-worker:latest
+  web: 583966366465.dkr.ecr.ap-south-1.amazonaws.com/relay-web:latest
