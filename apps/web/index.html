@@ -1,29 +1,187 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <title>Relay</title>
-</head>
-<body>
-  <h1>Relay dispatch</h1>
-  <p>This page talks to the API. The worker still does the job behind Redis.</p>
-  <label>
-    Message
-    <input id="msg" value="hello from the web" />
-  </label>
-  <button id="send" type="button">Queue job</button>
-  <pre id="out"></pre>
-  <script>
-    const out = document.getElementById("out");
-    document.getElementById("send").onclick = async () => {
-      const message = document.getElementById("msg").value;
-      const res = await fetch("/jobs", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message }),
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Relay dispatch</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="top">
+        <div class="brand">
+          <strong>Relay</strong>
+          <span>dispatch</span>
+        </div>
+        <nav>
+          <a href="#dispatch">Queue a job</a>
+          <a href="#about">About the project</a>
+        </nav>
+      </header>
+
+      <section class="hero" id="dispatch">
+        <div>
+          <h1>Send a job. Watch the worker pick it up.</h1>
+          <p class="lede">
+            This page talks to the API. The API puts the message on Redis list
+            <code>relay:jobs</code>. The worker pulls it. Postgres is only here
+            so <code>/ready</code> can tell the truth.
+          </p>
+          <div class="pills">
+            <span class="pill">web → API → Redis → worker</span>
+            <span class="pill">same chart on kind and EKS</span>
+            <span class="pill">GitOps, not kubectl from CI</span>
+          </div>
+        </div>
+
+        <form class="card" id="job-form">
+          <h2>Queue a job</h2>
+          <p class="hint">POST /jobs. Nginx proxies this to the API. The worker still does the work.</p>
+          <label for="msg">Message</label>
+          <textarea id="msg" name="message" maxlength="500" placeholder="e.g. deploy checklist for ap-south-1" required></textarea>
+          <div class="row">
+            <div class="status">
+              <span class="dot" id="health">health …</span>
+              <span class="dot" id="ready">ready …</span>
+            </div>
+            <button type="submit" id="send">Queue job</button>
+          </div>
+          <div class="out" id="out">No job sent yet.</div>
+        </form>
+      </section>
+
+      <section class="about" id="about">
+        <h2>About this project</h2>
+        <p>
+          Relay is a small dispatch product I built to learn DevOps by typing
+          every file. Same application from Docker Compose, to Kubernetes on
+          kind, to Amazon EKS. The product does not change. The environment
+          around it does.
+        </p>
+        <div class="flow">
+          <span>browser</span>
+          <span>web</span>
+          <span>API</span>
+          <span>Redis relay:jobs</span>
+          <span>worker</span>
+        </div>
+
+        <article class="diagram">
+          <header>
+            <h3>Compose — five containers, one command</h3>
+            <p>The first real run. One file starts the whole product on the laptop.</p>
+          </header>
+          <img src="/diagrams/compose.png" alt="Docker Compose: browser to web, API, Redis, worker, and Postgres" />
+          <p class="caption">
+            One Compose file starts all five containers. Only web publishes 8080:80.
+            The others find each other by service name, not by localhost.
+          </p>
+        </article>
+
+        <article class="diagram">
+          <header>
+            <h3>GitOps on kind — Argo watches git</h3>
+            <p>Git is the source of truth. Argo syncs the Helm chart. CI does not kubectl apply.</p>
+          </header>
+          <img src="/diagrams/gitops.png" alt="Argo CD watching charts/relay and syncing namespace relay" />
+          <p class="caption">
+            Argo watches charts/relay and syncs namespace relay. Argo does not load
+            images. You still kind load first.
+          </p>
+        </article>
+
+        <article class="diagram">
+          <header>
+            <h3>Terraform lab — state on S3, not EKS yet</h3>
+            <p>Infrastructure as code before the production-shaped cluster.</p>
+          </header>
+          <img src="/diagrams/terraform.png" alt="Terraform creating S3 state, DynamoDB lock, and the lab VPC" />
+          <p class="caption">
+            Terraform creates the lab from files. State lives on S3. DynamoDB locks
+            the apply. The extra empty bucket is not Relay. This is not EKS.
+          </p>
+        </article>
+
+        <article class="diagram">
+          <header>
+            <h3>Observability — scrape inside the cluster</h3>
+            <p>Kubernetes Ready is not enough. Prometheus checks the API is actually up.</p>
+          </header>
+          <img src="/diagrams/observability.png" alt="Prometheus scraping API /metrics inside the cluster, Grafana querying Prometheus" />
+          <p class="caption">
+            Prometheus scrapes the API Service inside the cluster. Grafana only graphs
+            what Prometheus stored. /metrics is not on Ingress.
+          </p>
+        </article>
+
+        <article class="diagram">
+          <header>
+            <h3>Relay on Amazon EKS</h3>
+            <p>Same chart. Private nodes. Public NLB. No bastion.</p>
+          </header>
+          <img src="/diagrams/eks.png" alt="Relay on AWS EKS: public NAT and NLB, private nodes, ECR, Argo, monitoring" />
+          <p class="caption">
+            Relay on EKS reuses the lab VPC. Public subnets hold NAT and the NLB.
+            Private subnets hold the worker nodes. GitHub Actions pushes images to ECR
+            with OIDC. Users hit NLB → ingress-nginx → web. Prometheus and Grafana
+            stay off the public URL.
+          </p>
+        </article>
+      </section>
+
+      <footer>
+        Public repo: <a href="https://github.com/Sheshanadaf/Relay">Sheshanadaf/Relay</a>
+      </footer>
+    </div>
+
+    <script>
+      const out = document.getElementById("out");
+      const send = document.getElementById("send");
+      const healthEl = document.getElementById("health");
+      const readyEl = document.getElementById("ready");
+
+      async function ping(path, el, label) {
+        try {
+          const res = await fetch(path);
+          const ok = res.ok;
+          el.textContent = label + (ok ? " ok" : " down");
+          el.className = "dot " + (ok ? "ok" : "bad");
+        } catch {
+          el.textContent = label + " down";
+          el.className = "dot bad";
+        }
+      }
+
+      ping("/health", healthEl, "health");
+      ping("/ready", readyEl, "ready");
+
+      document.getElementById("job-form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const message = document.getElementById("msg").value.trim();
+        if (!message) {
+          out.className = "out bad";
+          out.textContent = "Type a message first.";
+          return;
+        }
+        send.disabled = true;
+        out.className = "out";
+        out.textContent = "Queueing…";
+        try {
+          const res = await fetch("/jobs", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ message }),
+          });
+          const text = await res.text();
+          out.className = "out " + (res.ok ? "ok" : "bad");
+          out.textContent = text;
+        } catch (err) {
+          out.className = "out bad";
+          out.textContent = "Could not reach the API. " + err;
+        } finally {
+          send.disabled = false;
+        }
       });
-      out.textContent = await res.text();
-    };
-  </script>
-</body>
+    </script>
+  </body>
 </html>
