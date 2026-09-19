@@ -208,6 +208,11 @@ Do not commit `*.tfstate` or `cidr.tfvars`.
 
 Those tools still belong in interviews. Jenkins/Ansible belong in a **later** repo if a VM or a Jenkins job is real.
 
+## 📚 Medium Articles
+
+- [Learn and Build DevOps With Me: Building Relay Project From Laptop to AWS](https://medium.com/@sheshanhebron61/learn-and-build-devops-with-me-building-relay-from-laptop-to-aws-e6fce6c55faf)
+- [Relay on AWS EKS: A Production-Shaped DevOps Architecture](https://medium.com/@sheshanhebron61/relay-on-aws-eks-a-production-shaped-devops-architecture-6f3cfa2bbfec)
+
 ## License
 
 Use as a portfolio/study project.
