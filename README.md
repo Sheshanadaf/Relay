@@ -1,5 +1,7 @@
 # Relay
 
+![Relay Architecture](./assets/eks.png)
+
 Relay is a small **dispatch** product: a web page sends a message to an API, the API puts a job on **Redis**, a **worker** prints it. **Postgres** is there so the API can say it is really ready, not only “the process started.”
 
 This repo is the public evidence of how that system is built and operated: Docker, Compose, GitHub Actions, Kubernetes (**kind** and **EKS**), Helm, Argo CD, Terraform on AWS, ECR, and a small Prometheus + Grafana path.
